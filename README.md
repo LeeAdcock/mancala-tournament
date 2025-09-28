@@ -1,25 +1,33 @@
+
 # mancala-tournament
 
 ## Mancala Tournament API Documentation
 
 ### Base URL
-
 ```
 http://localhost:3000
 ```
 
-### 1. Create a Player
+---
 
-**Endpoint:**  
-`POST /players`
+### 1. Create or Get a Player
 
-**Description:**  
-Creates a new player and returns a unique player ID.
+**Endpoint:**
+```
+POST /players
+```
 
-**Request Body:**  
-None
+**Description:**
+- If a `password` (UUID string) is provided in the request body, the API will check for an existing player with that password. If found, it returns the existing player ID. If not, it creates a new player with that password.
+- If no password is provided, a new player is always created.
+- The password is never returned in any API response.
 
-**Response:**
+**Request Body Example:**
+```json
+{ "password": "b7e6c2c2-1234-4e5a-8b2a-abcdef123456" }
+```
+
+**Response Example (existing or new player):**
 ```json
 { "id": "player-uuid" }
 ```
@@ -28,11 +36,10 @@ None
 
 ### 2. Get Player Info
 
-**Endpoint:**  
-`GET /players/:playerId`
-
-**Description:**  
-Fetches player stats and info.
+**Endpoint:**
+```
+GET /players/:playerId
+```
 
 **Response Example:**
 ```json
@@ -40,7 +47,7 @@ Fetches player stats and info.
 	"id": "player-uuid",
 	"wins": 0,
 	"losses": 0,
-	"createdAt": "...",
+	"createdAt": "2025-09-28T12:00:00.000Z",
 	"lastPlayedAt": null,
 	"score": 1200
 }
@@ -48,68 +55,76 @@ Fetches player stats and info.
 
 ---
 
-### 3. Join or Get a Game
+### 3. List Players
 
-**Endpoint:**  
-`GET /players/:playerId/turns`
+**Endpoint:**
+```
+GET /players
+```
 
-**Description:**  
-Joins an existing game or creates a new one if none are available. Returns the current board state.
+**Response Example:**
+```json
+[
+	{
+		"id": "player-uuid",
+		"wins": 0,
+		"losses": 0,
+		"createdAt": "2025-09-28T12:00:00.000Z",
+		"lastPlayedAt": null,
+		"score": 1200
+	},
+	// ...more players
+]
+```
+
+---
+
+### 4. Join or Get a Game Turn
+
+**Endpoint:**
+```
+GET /players/:playerId/turns
+```
 
 **Response Example:**
 ```json
 {
+	"turnId": "turn-uuid",
 	"board": [4, 4, 4, 4, 4, 4, 0, 4, 4, 4, 4, 4, 4, 0]
 }
 ```
 
 ---
 
-### 4. Make a Move
+### 5. Make a Move
 
-**Endpoint:**  
-`POST /players/:playerId/turns/:turnId`
+**Endpoint:**
+```
+POST /players/:playerId/turns/:turnId
+```
 
-**Description:**  
-Submit a move for your turn.
-
-**Request Body:**
+**Request Body Example:**
 ```json
 { "pit": 2 }
 ```
-- `pit`: The index of the pit you want to move from (0-5 for player 1, 7-12 for player 2).
 
 **Response Example:**
 ```json
 {
 	"state": {
-		"board": [...],
+		"board": [4, 4, 0, 5, 5, 5, 1, 4, 4, 4, 4, 4, 4, 0],
 		"turn": "next-player-id",
-		"status": "active" // or "finished"
+		"status": "active"
 	},
 	"history": [
-		{ "turnId": "...", "board": [...], "player": "...", "pit": 2, "timestamp": "..." }
+		{ "turnId": "turn-uuid", "board": [4, 4, 0, 5, 5, 5, 1, 4, 4, 4, 4, 4, 4, 0], "player": "player-uuid", "pit": 2, "timestamp": "2025-09-28T12:01:00.000Z" }
 	]
 }
 ```
 
 ---
 
-### 5. Listen for Game Results (Server-Sent Events)
-
-**Endpoint:**  
-`GET /player/:playerId/games`
-
-**Description:**  
-Listen for finished games and receive win/loss/draw notifications via SSE.
-
-**How to Use:**  
-Open a connection to this endpoint to receive real-time updates when your games finish.
-
----
-
-### Board Representation
-
+### 6. Board Representation
 - The board is an array of 14 numbers:
 	- Index 0-5: Player 1's pits
 	- Index 6: Player 1's store
@@ -119,7 +134,6 @@ Open a connection to this endpoint to receive real-time updates when your games 
 ---
 
 ### Notes
-
-- Ensure AWS DynamoDB tables (`Players`, `ActivePlayers`, `ActiveGames`) exist and are configured.
+- The `password` field is only used for player lookup/creation and is never returned in any API response.
 - All endpoints return JSON.
 - The server uses port 3000 by default.

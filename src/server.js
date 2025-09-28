@@ -13,6 +13,7 @@ const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, QueryComm
 const { randomUUID } = require('crypto');
 const EventEmitter = require('events');
 const { CreateTableCommand, ListTablesCommand, UpdateTableCommand, DescribeTableCommand } = require('@aws-sdk/client-dynamodb');
+const { ScanCommand } = require('@aws-sdk/lib-dynamodb');
 
 // --- SERVER SETUP ---
 const app = express();
@@ -29,7 +30,24 @@ const docClient = DynamoDBDocumentClient.from(dbClient);
 
 app.post('/players', async (req, res) => {
     try {
-        const playerId = randomUUID();
+        const { password } = req.body || {};
+        let playerId;
+        if (password) {
+            // Look for existing player with this password
+            const scanResult = await docClient.send(new ScanCommand({
+                TableName: 'Players',
+                FilterExpression: '#password = :password',
+                ExpressionAttributeNames: { '#password': 'password' },
+                ExpressionAttributeValues: { ':password': password }
+            }));
+            if (scanResult.Items && scanResult.Items.length > 0) {
+                // Found existing player
+                playerId = scanResult.Items[0].id;
+                return res.status(200).json({ id: playerId });
+            }
+        }
+        // Create new player
+        playerId = randomUUID();
         const now = new Date().toISOString();
         const player = {
             id: playerId,
@@ -39,6 +57,7 @@ app.post('/players', async (req, res) => {
             lastPlayedAt: null,
             score: 1200 // Default starting score
         };
+        if (password) player.password = password;
 
         await docClient.send(new PutCommand({
             TableName: 'Players',
@@ -49,6 +68,27 @@ app.post('/players', async (req, res) => {
     } catch (error) {
         console.error('Error creating player:', error);
         res.status(500).json({ error: 'Failed to create player' });
+    }
+});
+
+app.get('/players', async (req, res) => {
+    try {
+        // Scan all players (for small scale; for large scale, use a GSI on score)
+        const result = await docClient.send(new ScanCommand({
+            TableName: 'Players'
+        }));
+        // Remove passwords before returning players
+        const players = (result.Items || [])
+            .sort((a, b) => (b.score || 0) - (a.score || 0))
+            .slice(0, 100)
+            .map(player => {
+                const { password, ...rest } = player;
+                return rest;
+            });
+        res.json(players);
+    } catch (error) {
+        console.error('Error fetching players:', error);
+        res.status(500).json({ error: 'Failed to fetch players' });
     }
 });
 
@@ -64,7 +104,9 @@ app.get('/players/:playerId', async (req, res) => {
             return res.status(404).json({ error: 'Player not found' });
         }
 
-        res.json(result.Item);
+    // Remove password before returning
+    const { password, ...rest } = result.Item;
+    res.json(rest);
     } catch (error) {
         console.error('Error fetching player:', error);
         res.status(500).json({ error: 'Failed to fetch player' });
@@ -156,7 +198,7 @@ app.get('/players/:playerId/turns', async (req, res) => {
             board[6]               // player 1's store becomes 13
             ];
         }
-        res.json({ board });
+        res.json({ turnId, board });
     } catch (error) {
         console.error('Error in /players/:playerId/games:', error);
         res.status(500).json({ error: 'Failed to get or create game' });
@@ -376,7 +418,7 @@ app.post('/players/:playerId/turns/:turnId', async (req, res) => {
             }
         }));
 
-        res.json({ state: updatedState, history });
+        res.json(null); // Respond with empty body on success
     } catch (error) {
         console.error('Error submitting move:', error);
         res.status(500).json({ error: 'Failed to submit move.' });
@@ -548,6 +590,5 @@ app.listen(PORT, () => {
     console.log(`\n============================================`);
     console.log(`  Mancala Tournament Server is running!`);
     console.log(`  API Base URL: http://localhost:${PORT}`);
-    console.log(`  NOTE: Ensure DynamoDB tables (Players, MatchmakingQueue, Games) exist.`);
     console.log(`============================================\n`);
 });
